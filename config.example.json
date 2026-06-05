@@ -1,0 +1,39 @@
+{
+  "port": 3001,
+  "localKeys": [
+    {
+      "key": "sk-local-agentrouter",
+      "label": "台式机",
+      "provider": "agentrouter",
+      "model": "glm-5.1"
+    },
+    {
+      "key": "sk-local-mimo",
+      "label": "笔记本",
+      "provider": "mimo",
+      "model": "mimo-v2.5-pro"
+    }
+  ],
+  "defaultProvider": "agentrouter",
+  "modelAliases": {},
+  "providers": [
+    {
+      "name": "agentrouter",
+      "baseUrl": "https://agentrouter.org/v1",
+      "apiKey": "sk-你的agentrouter-key",
+      "models": ["deepseek-v4-pro", "glm-5.1", "deepseek-v4-flash"],
+      "thinkingStyle": "deepseek",
+      "headers": {
+        "User-Agent": "RooCode/3.53.0",
+        "X-Title": "Roo Code",
+        "HTTP-Referer": "https://github.com/RooVetGit/Roo-Cline",
+        "X-Stainless-OS": "Linux",
+        "X-Stainless-Arch": "x64",
+        "X-Stainless-Lang": "js",
+        "X-Stainless-Runtime": "node",
+        "X-Stainless-Runtime-Version": "v22.22.1",
+        "Accept": "application/json"
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "codex-responses-proxy",
+  "version": "1.0.0",
+  "description": "Codex Responses API proxy with multi-provider routing and web config console",
+  "type": "module",
+  "bin": {
+    "codex-responses-proxy": "./bin/codex-responses-proxy.mjs"
+  },
+  "files": [
+    "bin",
+    "proxy.mjs",
+    "console.html",
+    "config.example.json",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node bin/codex-responses-proxy.mjs",
+    "smoke": "bash scripts/smoke.sh"
+  },
+  "license": "MIT"
+}

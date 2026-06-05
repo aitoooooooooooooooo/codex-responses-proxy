@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Codex Responses Proxy</title>
+<style>
+  :root {
+    --bg:#0b0d12; --surface:#13161f; --surface2:#1c2030; --surface3:#252a3a;
+    --border:#2d3348; --text:#eef0f5; --muted:#8b93ad; --accent:#6c8cff;
+    --accent-hover:#8aa4ff; --accent-dim:rgba(108,140,255,.12);
+    --ok:#3dd68c; --err:#ff6b6b; --warn:#ffc857; --radius:14px;
+    font-family:"SF Pro Text","Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:88px}
+  .layout{display:flex;min-height:calc(100vh - 88px)}
+  .sidebar{width:220px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);padding:20px 12px;position:sticky;top:57px;height:calc(100vh - 57px);overflow-y:auto}
+  .sidebar .logo{font-size:1rem;font-weight:700;padding:0 8px 16px;border-bottom:1px solid var(--border);margin-bottom:12px}
+  .sidebar .logo span{color:var(--accent)}
+  .nav-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:none;color:var(--muted);padding:10px 12px;border-radius:10px;cursor:pointer;font-size:.88rem;margin-bottom:2px}
+  .nav-item:hover{background:var(--surface2);color:var(--text)}
+  .nav-item.active{background:var(--accent-dim);color:var(--accent);font-weight:600}
+  .nav-icon{width:18px;text-align:center;opacity:.85}
+  .main{flex:1;padding:24px 28px;max-width:980px}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:20}
+  .topbar-title{font-weight:600;font-size:.95rem}
+  .status{display:flex;align-items:center;gap:8px;font-size:.82rem;color:var(--muted)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  .page-title{font-size:1.35rem;font-weight:700;margin:0 0 4px}
+  .page-desc{color:var(--muted);font-size:.88rem;margin:0 0 20px}
+  .panel{display:none}.panel.active{display:block}
+  .stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+  .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+  .stat-label{font-size:.75rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+  .stat-value{font-size:1.5rem;font-weight:700;line-height:1.2}
+  .stat-sub{font-size:.78rem;color:var(--muted);margin-top:4px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px}
+  .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap}
+  .card-title{font-weight:600;font-size:.95rem;margin:0}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:800px){.layout{flex-direction:column}.sidebar{width:100%;height:auto;position:static;display:flex;flex-wrap:wrap;gap:4px;padding:12px}.main{padding:16px}.grid-2{grid-template-columns:1fr}}
+  label{display:block;font-size:.8rem;color:var(--muted);margin:10px 0 6px}
+  input,select,textarea{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px 12px;font-size:.9rem}
+  input:focus,select:focus{outline:none;border-color:var(--accent)}
+  .input-row{display:flex;gap:8px;align-items:center}.input-row input{flex:1}
+  .hint{color:var(--muted);font-size:.78rem;margin-top:6px;line-height:1.5}
+  .btn{display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:.86rem;cursor:pointer;margin-top:8px;margin-right:8px}
+  .btn:hover{background:var(--accent-hover)}.btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+  .btn.ghost{background:transparent;border:1px solid var(--border);color:var(--muted);margin-top:0}
+  .btn.sm{padding:6px 12px;font-size:.78rem;margin-top:0}
+  .btn.danger{color:var(--err);border-color:rgba(255,107,107,.3)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;min-height:28px}
+  .chip{background:var(--accent-dim);color:var(--accent);padding:4px 10px;border-radius:999px;font-size:.78rem;display:inline-flex;align-items:center;gap:4px}
+  .chip button{background:none;border:none;color:var(--muted);cursor:pointer;padding:0;font-size:.9rem;line-height:1}
+  .chip button:hover{color:var(--err)}
+  .badge{display:inline-block;font-size:.72rem;padding:2px 8px;border-radius:999px;white-space:nowrap}
+  .badge.ok{background:rgba(61,214,140,.15);color:var(--ok)}
+  .badge.err{background:rgba(255,107,107,.15);color:var(--err)}
+  .badge.wait{background:rgba(255,200,87,.15);color:var(--warn)}
+  .badge.muted{background:var(--surface3);color:var(--muted)}
+  .badge.accent{background:var(--accent-dim);color:var(--accent)}
+  .result{margin-top:10px;padding:10px 12px;border-radius:8px;font-size:.82rem;display:none}
+  .result.show{display:block}.result.ok{background:rgba(61,214,140,.1);color:var(--ok)}.result.err{background:rgba(255,107,107,.1);color:var(--err)}
+  .code-block{position:relative;background:#080a0f;border:1px solid var(--border);border-radius:8px;padding:14px;font-family:ui-monospace,monospace;font-size:.76rem;line-height:1.55;overflow-x:auto;white-space:pre;margin-top:8px}
+  .copy-btn{background:var(--surface3);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 10px;font-size:.72rem;cursor:pointer}
+  .copy-btn:hover{color:var(--text);border-color:var(--accent)}
+  .actionbar{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:center;gap:12px;z-index:30}
+  .actionbar .hint{flex:1;max-width:980px;margin:0;font-size:.8rem}
+  details.adv{margin-top:12px}details.adv summary{cursor:pointer;color:var(--muted);font-size:.85rem;padding:8px 0}
+  table{width:100%;border-collapse:collapse;font-size:.82rem}
+  th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--border)}th{color:var(--muted);font-weight:500;font-size:.75rem}
+  tr:last-child td{border-bottom:none}
+  tr.route-active td{background:rgba(108,140,255,.06)}
+  .mono{font-family:ui-monospace,monospace;font-size:.82rem}
+  .toast{position:fixed;bottom:96px;right:24px;background:var(--surface2);border:1px solid var(--border);padding:12px 20px;border-radius:10px;font-size:.88rem;opacity:0;transform:translateY(10px);transition:all .25s;pointer-events:none;z-index:99;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+  .toast.show{opacity:1;transform:translateY(0)}.toast.ok{border-color:var(--ok)}.toast.err{border-color:var(--err)}
+  .model-picker{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .model-opt{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;cursor:pointer;font-size:.85rem;text-align:left}
+  .model-opt.active{border-color:var(--accent);background:var(--accent-dim);color:var(--accent)}
+  .model-opt .prov-tag{display:block;font-size:.7rem;color:var(--muted);margin-top:2px}
+  .model-opt.active .prov-tag{color:var(--accent);opacity:.8}
+  .quick-actions{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+  .quick-btn{display:flex;flex-direction:column;align-items:flex-start;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;cursor:pointer;text-align:left;color:var(--text);transition:border-color .15s}
+  .quick-btn:hover{border-color:var(--accent)}
+  .quick-btn .qa-title{font-weight:600;font-size:.88rem}
+  .quick-btn .qa-desc{font-size:.75rem;color:var(--muted)}
+  .info-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+  .info-row:last-child{border-bottom:none}
+  .info-label{color:var(--muted);font-size:.8rem;flex-shrink:0}
+  .info-value{font-family:ui-monospace,monospace;font-size:.82rem;word-break:break-all;text-align:right}
+  .prov-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px}
+  .prov-card.is-default{border-color:var(--accent)}
+  .prov-card-head{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+  .prov-card-head .prov-name-input{width:160px;margin:0;font-weight:600}
+  .prov-card-actions{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+  .bar-track{height:6px;background:var(--surface3);border-radius:999px;overflow:hidden;margin-top:6px}
+  .bar-fill{height:100%;background:var(--accent);border-radius:999px}
+  .empty-state{text-align:center;padding:32px;color:var(--muted);font-size:.88rem}
+  .route-highlight{font-size:1.1rem;font-weight:600;color:var(--accent)}
+  .key-select,.key-label-input{background:var(--surface3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 8px;font-size:.78rem;width:100%;margin:0}
+  .key-form-grid{display:grid;grid-template-columns:1fr 120px 140px 100px auto auto;gap:8px;padding:16px 20px;border-bottom:1px solid var(--border);align-items:center}
+  @media(max-width:800px){.key-form-grid{grid-template-columns:1fr 1fr;}}
+  .secret-row{display:flex;gap:6px;align-items:center}
+  .secret-row input{flex:1;margin:0}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-title">Codex Responses Proxy</div>
+  <div class="status"><span class="dot"></span><span id="statusText">连接中…</span></div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="logo">Codex <span>Proxy</span></div>
+    <button class="nav-item active" data-tab="dashboard"><span class="nav-icon">📊</span>概览</button>
+    <button class="nav-item" data-tab="providers"><span class="nav-icon">🔌</span>渠道</button>
+    <button class="nav-item" data-tab="codex"><span class="nav-icon">🚀</span>接入 Codex</button>
+    <button class="nav-item" data-tab="keys"><span class="nav-icon">🔑</span>本地 Key</button>
+    <button class="nav-item" data-tab="advanced"><span class="nav-icon">⚙️</span>高级</button>
+    <button class="nav-item" data-tab="logs"><span class="nav-icon">📋</span>请求日志</button>
+  </aside>
+
+  <main class="main">
+    <!-- 概览 -->
+    <div class="panel active" id="panel-dashboard">
+      <h1 class="page-title">概览</h1>
+      <p class="page-desc">运行状态与当前路由</p>
+      <div class="stats-grid" id="statsGrid"></div>
+
+      <div class="card" id="currentRouteCard">
+        <div class="card-head"><h3 class="card-title">当前选用</h3></div>
+        <div id="currentRoute"></div>
+      </div>
+
+      <div class="card" style="padding:0;overflow:hidden">
+        <div class="card-head" style="padding:16px 20px 0;margin:0"><h3 class="card-title">模型 → 渠道路由</h3></div>
+        <table><thead><tr><th>模型</th><th>渠道</th><th>说明</th></tr></thead><tbody id="routingTable"></tbody></table>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h3 class="card-title">接入信息</h3><button class="copy-btn" id="copyEndpoint" type="button">复制 Base URL</button></div>
+          <div id="connectInfo"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3 class="card-title">渠道用量</h3></div>
+          <div id="providerUsage"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3 class="card-title">快捷操作</h3></div>
+        <div class="quick-actions">
+          <button class="quick-btn" id="qaProviders" type="button"><span class="qa-title">管理渠道</span><span class="qa-desc">统一配置 agentrouter / MiMo</span></button>
+          <button class="quick-btn" id="qaTestAll" type="button"><span class="qa-title">测试全部渠道</span><span class="qa-desc">逐个验证连通性</span></button>
+          <button class="quick-btn" id="qaCopyCodex" type="button"><span class="qa-title">复制 Codex 配置</span><span class="qa-desc">config.toml + auth.json</span></button>
+          <button class="quick-btn" id="qaCodex" type="button"><span class="qa-title">接入 Codex</span><span class="qa-desc">选模型并复制配置</span></button>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0;overflow:hidden">
+        <div class="card-head" style="padding:16px 20px 0"><h3 class="card-title">最近请求</h3></div>
+        <table><thead><tr><th>时间</th><th>渠道</th><th>模型</th><th>耗时</th><th>结果</th></tr></thead><tbody id="dashLogBody"></tbody></table>
+        <p class="empty-state" id="dashNoLogs">暂无请求记录</p>
+      </div>
+    </div>
+
+    <!-- 渠道（统一管理） -->
+    <div class="panel" id="panel-providers">
+      <h1 class="page-title">上游渠道</h1>
+      <p class="page-desc">agentrouter、MiMo 等所有渠道在此配置。Codex 发请求时，代理按<strong>模型名</strong>自动匹配下方渠道。</p>
+
+      <div class="card" style="padding:0;overflow:hidden">
+        <div class="card-head" style="padding:16px 20px 0;margin:0"><h3 class="card-title">路由规则预览</h3></div>
+        <table><thead><tr><th>模型</th><th>→ 渠道</th><th>Key</th></tr></thead><tbody id="routingTableProviders"></tbody></table>
+        <p class="hint" style="padding:12px 20px;margin:0">未匹配的模型会回退到默认渠道：<strong id="defaultProviderLabel">—</strong></p>
+      </div>
+
+      <div class="card-head" style="margin-top:8px">
+        <h3 class="card-title">渠道列表</h3>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <select id="presetSelect" class="key-select" style="width:auto;min-width:220px" title="选择厂商模板"></select>
+            <button class="btn sm" id="addFromPreset" type="button">从模板添加</button>
+            <button class="btn sm secondary" id="addProvider" type="button">+ 空白渠道</button>
+          </div>
+          <span id="presetUrlHint" class="hint" style="font-size:12px;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+        </div>
+      </div>
+      <div id="allProviders"></div>
+    </div>
+
+    <!-- 接入 Codex -->
+    <div class="panel" id="panel-codex">
+      <h1 class="page-title">接入 Codex</h1>
+      <p class="page-desc">选择模型后复制配置。代理会根据模型名路由到对应渠道。</p>
+
+      <div class="card">
+        <label>选择模型</label>
+        <div class="model-picker" id="modelPicker"></div>
+        <div id="selectedRouteHint" class="hint" style="margin-top:12px"></div>
+        <label style="margin-top:16px">~/.codex/config.toml</label>
+        <div class="code-block" id="codexToml"></div>
+        <label>~/.codex/auth.json</label>
+        <div class="code-block" id="codexAuth"></div>
+        <button class="btn secondary sm" id="copyAll" type="button">一键复制全部</button>
+      </div>
+    </div>
+
+    <!-- 本地 Key -->
+    <div class="panel" id="panel-keys">
+      <h1 class="page-title">本地 Key</h1>
+      <p class="page-desc">每个 Key 可绑定渠道或模型。点击「复制完整 Key」写入 Codex 的 auth.json。</p>
+      <p class="hint" style="margin-top:-12px;margin-bottom:16px">配置文件：<span class="mono" id="configPathHint">~/.codex-responses-proxy/config.json</span></p>
+      <div class="card" style="padding:0;overflow:hidden">
+        <div class="key-form-grid">
+          <input id="newLocalKey" type="text" placeholder="Key 值" autocomplete="off"/>
+          <input id="newKeyLabel" type="text" class="key-label-input" placeholder="备注（可选）"/>
+          <select id="newKeyProvider" class="key-select"><option value="">渠道：不限</option></select>
+          <select id="newKeyModel" class="key-select"><option value="">模型：不限</option></select>
+          <button class="btn sm secondary" id="genKey" type="button">生成</button>
+          <button class="btn sm" id="addLocalKey" type="button">添加</button>
+        </div>
+        <table><thead><tr><th>Key</th><th>备注</th><th>绑定渠道</th><th>绑定模型</th><th>状态</th><th>操作</th></tr></thead><tbody id="keyTableBody"></tbody></table>
+        <p class="empty-state" id="noKeys">暂无 Key — 保存空列表将关闭鉴权</p>
+      </div>
+    </div>
+
+    <!-- 高级 -->
+    <div class="panel" id="panel-advanced">
+      <h1 class="page-title">高级设置</h1>
+      <p class="page-desc">端口、默认回退渠道与模型别名</p>
+      <div class="card">
+        <label>监听端口 <span class="hint">（修改后需重启代理）</span></label>
+        <input id="port" type="number"/>
+        <label>默认渠道 <span class="hint">（模型名未匹配任何渠道时，请求发到这里）</span></label>
+        <select id="defaultProvider"></select>
+        <details class="adv">
+          <summary>模型别名（可选，如 mimo-v2.5-flash → mimo-v2.5）</summary>
+          <div id="aliasList"></div>
+          <button class="btn sm secondary" id="addAlias" type="button">+ 添加别名</button>
+        </details>
+      </div>
+    </div>
+
+    <!-- 日志 -->
+    <div class="panel" id="panel-logs">
+      <h1 class="page-title">请求日志</h1>
+      <p class="page-desc">每条记录显示实际使用的渠道</p>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table><thead><tr><th>时间</th><th>渠道</th><th>模型</th><th>耗时</th><th>结果</th></tr></thead><tbody id="logBody"></tbody></table>
+        <p class="empty-state" id="noLogs">暂无请求</p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="actionbar">
+  <span class="hint" id="dirtyHint">修改后请点击保存</span>
+  <button class="btn secondary" id="testBtn" type="button">测试全部渠道</button>
+  <button class="btn" id="saveBtn" type="button">保存并生效</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let cfg = null;
+let health = null;
+let statsData = null;
+let selectedModel = "glm-5.1";
+let dirty = false;
+/** @type {{ type:'existing', origIndex:number, preview:string, fullKey:string, provider:string, model:string, label:string }|{ type:'new', value:string, provider:string, model:string, label:string }}[]} */
+let localKeySlots = [];
+
+function toast(msg, type = "ok") {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.className = "toast show " + type;
+  setTimeout(() => el.classList.remove("show"), 3000);
+}
+
+function markDirty() {
+  dirty = true;
+  document.getElementById("dirtyHint").textContent = "● 有未保存的修改";
+  document.getElementById("dirtyHint").style.color = "var(--warn)";
+}
+
+function switchTab(tab) {
+  document.querySelectorAll(".nav-item").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+  document.getElementById("panel-" + tab).classList.add("active");
+}
+
+document.querySelectorAll(".nav-item").forEach(btn => {
+  btn.onclick = () => switchTab(btn.dataset.tab);
+});
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || j.errors?.join?.("; ") || r.statusText);
+  return j;
+}
+
+function normModel(m) { return String(m || "").trim().toLowerCase(); }
+
+function resolveModelRoute(model, providers, aliases, defaultProvider) {
+  const resolved = (aliases || {})[model] || model;
+  const norm = normModel(resolved);
+  for (const p of providers || []) {
+    if ((p.models || []).some(m => normModel(m) === norm)) {
+      return { provider: p.name, model: resolved, alias: resolved !== model ? model : null };
+    }
+  }
+  return { provider: defaultProvider, model: resolved, fallback: true, alias: resolved !== model ? model : null };
+}
+
+function buildRoutingRows(providers, aliases, defaultProvider) {
+  const rows = [];
+  const seen = new Set();
+  for (const p of providers || []) {
+    for (const m of p.models || []) {
+      const id = normModel(m);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      rows.push({ model: m, provider: p.name, note: "按模型名匹配", hasKey: p.hasApiKey });
+    }
+  }
+  for (const [alias, target] of Object.entries(aliases || {})) {
+    if (seen.has(normModel(alias))) continue;
+    const route = resolveModelRoute(alias, providers, aliases, defaultProvider);
+    rows.push({ model: alias, provider: route.provider, note: `别名 → ${target}`, hasKey: true, isAlias: true });
+  }
+  rows.sort((a, b) => a.model.localeCompare(b.model));
+  return rows;
+}
+
+function genRandomKey() {
+  return "sk-local-" + crypto.randomUUID().replace(/-/g, "").slice(0, 20);
+}
+
+function getProviderNames() {
+  const providers = collectAllProviders().length ? collectAllProviders() : (cfg?.providers || []);
+  return providers.map(p => p.name);
+}
+
+function getModelsForProvider(providerName) {
+  const providers = collectAllProviders().length ? collectAllProviders() : (cfg?.providers || []);
+  if (!providerName) {
+    const all = [];
+    const seen = new Set();
+    for (const p of providers) {
+      for (const m of p.models || []) {
+        const id = normModel(m);
+        if (!seen.has(id)) { seen.add(id); all.push({ model: m, provider: p.name }); }
+      }
+    }
+    return all;
+  }
+  const p = providers.find(x => x.name === providerName);
+  return (p?.models || []).map(m => ({ model: m, provider: providerName }));
+}
+
+function providerOptionsHtml(selected) {
+  return `<option value="">不限</option>` + getProviderNames().map(n =>
+    `<option value="${n}" ${n === selected ? "selected" : ""}>${n}</option>`
+  ).join("");
+}
+
+function modelOptionsHtml(providerName, selected) {
+  const items = getModelsForProvider(providerName);
+  return `<option value="">不限</option>` + items.map(({ model, provider }) =>
+    `<option value="${model}" ${model === selected ? "selected" : ""}>${model}${providerName ? "" : ` (${provider})`}</option>`
+  ).join("");
+}
+
+function refreshNewKeySelects() {
+  const prov = document.getElementById("newKeyProvider");
+  const mod = document.getElementById("newKeyModel");
+  if (!prov || !mod) return;
+  const pVal = prov.value;
+  prov.innerHTML = `<option value="">渠道：不限</option>` + getProviderNames().map(n =>
+    `<option value="${n}" ${n === pVal ? "selected" : ""}>${n}</option>`
+  ).join("");
+  mod.innerHTML = `<option value="">模型：不限</option>` + getModelsForProvider(pVal).map(({ model, provider }) =>
+    `<option value="${model}" ${model === mod.value ? "selected" : ""}>${model}${pVal ? "" : ` · ${provider}`}</option>`
+  ).join("");
+}
+
+function addKeyValue(v, provider = "", model = "", label = "") {
+  const val = v.trim();
+  if (!val) return;
+  localKeySlots.push({ type: "new", value: val, provider: provider.trim(), model: model.trim(), label: label.trim() });
+  renderKeyTable();
+  markDirty();
+  renderCodexSnippets();
+  renderDashboard();
+}
+
+document.getElementById("genKey").onclick = () => { document.getElementById("newLocalKey").value = genRandomKey(); };
+document.getElementById("newKeyProvider").onchange = () => {
+  const mod = document.getElementById("newKeyModel");
+  mod.innerHTML = `<option value="">模型：不限</option>` + getModelsForProvider(document.getElementById("newKeyProvider").value).map(({ model, provider }) =>
+    `<option value="${model}">${model}${document.getElementById("newKeyProvider").value ? "" : ` · ${provider}`}</option>`
+  ).join("");
+};
+document.getElementById("addLocalKey").onclick = () => {
+  addKeyValue(
+    document.getElementById("newLocalKey").value,
+    document.getElementById("newKeyProvider").value,
+    document.getElementById("newKeyModel").value,
+    document.getElementById("newKeyLabel").value,
+  );
+  document.getElementById("newLocalKey").value = "";
+  document.getElementById("newKeyLabel").value = "";
+  document.getElementById("newKeyProvider").value = "";
+  document.getElementById("newKeyModel").value = "";
+  refreshNewKeySelects();
+};
+
+function bindingSummary(s) {
+  if (s.model) return `<span class="badge accent">${s.model}</span>`;
+  if (s.provider) return `<span class="badge accent">${s.provider}</span>`;
+  return '<span class="badge muted">自动路由</span>';
+}
+
+function getSlotFullKey(s) {
+  return s.type === "new" ? s.value : (s.fullKey || s.preview);
+}
+
+function renderKeyTable() {
+  refreshNewKeySelects();
+  const tbody = document.getElementById("keyTableBody");
+  const empty = document.getElementById("noKeys");
+  if (!localKeySlots.length) { tbody.innerHTML = ""; empty.style.display = "block"; return; }
+  empty.style.display = "none";
+  tbody.innerHTML = localKeySlots.map((s, i) => {
+    const isNew = s.type === "new";
+    const fullKey = getSlotFullKey(s);
+    const status = isNew ? '<span class="badge wait">未保存</span>' : '<span class="badge ok">已保存</span>';
+    const provSel = `<select class="key-select key-prov" data-i="${i}">${providerOptionsHtml(s.provider || "")}</select>`;
+    const modSel = `<select class="key-select key-mod" data-i="${i}">${modelOptionsHtml(s.provider || "", s.model || "")}</select>`;
+    return `<tr>
+      <td><span class="mono">${fullKey}</span><div class="hint" style="margin-top:4px">${bindingSummary(s)}</div></td>
+      <td><input class="key-label-input key-label" data-i="${i}" value="${(s.label || "").replace(/"/g, "&quot;")}" placeholder="—"/></td>
+      <td>${provSel}</td>
+      <td>${modSel}</td>
+      <td>${status}</td>
+      <td style="white-space:nowrap">
+        <button class="btn sm ghost copy-key" data-v="${fullKey.replace(/"/g, "&quot;")}" type="button">复制完整 Key</button>
+        <button class="btn sm ghost copy-codex-key" data-i="${i}" type="button">Codex 配置</button>
+        <button class="btn sm ghost danger rm-key" data-i="${i}" type="button">删</button>
+      </td>
+    </tr>`;
+  }).join("");
+
+  tbody.querySelectorAll(".key-prov").forEach(sel => sel.onchange = () => {
+    const i = +sel.dataset.i;
+    localKeySlots[i].provider = sel.value;
+    localKeySlots[i].model = "";
+    renderKeyTable(); markDirty(); renderDashboard();
+  });
+  tbody.querySelectorAll(".key-mod").forEach(sel => sel.onchange = () => {
+    localKeySlots[+sel.dataset.i].model = sel.value;
+    markDirty(); renderDashboard();
+    const row = localKeySlots[+sel.dataset.i];
+    if (row.model && !row.provider) {
+      const hit = getModelsForProvider("").find(x => x.model === row.model);
+      if (hit) row.provider = hit.provider;
+    }
+    renderKeyTable();
+  });
+  tbody.querySelectorAll(".key-label").forEach(inp => inp.oninput = () => {
+    localKeySlots[+inp.dataset.i].label = inp.value;
+    markDirty();
+  });
+  tbody.querySelectorAll(".copy-key").forEach(b => b.onclick = () => {
+    navigator.clipboard.writeText(b.dataset.v);
+    toast("已复制完整 Key");
+  });
+  tbody.querySelectorAll(".copy-codex-key").forEach(b => b.onclick = () => {
+    const s = localKeySlots[+b.dataset.i];
+    const key = getSlotFullKey(s);
+    const model = s.model || selectedModel;
+    const port = document.getElementById("port")?.value || cfg?.port || 3001;
+    const route = resolveModelRoute(model, cfg?.providers, cfg?.modelAliases, cfg?.defaultProvider);
+    const text = `model = "${model}"\nmodel_provider = "local_proxy"\n\n[model_providers.local_proxy]\nbase_url = "http://127.0.0.1:${port}/v1"\nwire_api = "responses"\nrequires_openai_auth = true\n\n---\n\n{\n  "OPENAI_API_KEY": "${key}"\n}\n\n→ 渠道 ${route.provider}${s.provider ? " (Key 绑定)" : ""}`;
+    navigator.clipboard.writeText(text);
+    toast("已复制该 Key 的 Codex 配置");
+  });
+  tbody.querySelectorAll(".rm-key").forEach(b => b.onclick = () => {
+    localKeySlots.splice(+b.dataset.i, 1);
+    renderKeyTable(); markDirty(); renderCodexSnippets(); renderDashboard();
+  });
+}
+
+function buildLocalKeysPayload() {
+  return localKeySlots.map(s => {
+    const meta = { provider: s.provider || "", model: s.model || "", label: s.label || "" };
+    if (s.type === "existing") return { key: `__KEEP:${s.origIndex}__`, ...meta };
+    return { key: s.value, ...meta };
+  });
+}
+
+function getPrimaryLocalKeyForSnippet() {
+  const firstNew = localKeySlots.find(s => s.type === "new");
+  if (firstNew) return firstNew.value;
+  if (localKeySlots.length) return getSlotFullKey(localKeySlots[0]) || "sk-local-xxx";
+  return "sk-local-xxx";
+}
+
+function genKeyIfEmpty() {
+  if (localKeySlots.length === 0) {
+    localKeySlots.push({ type: "new", value: genRandomKey(), provider: "", model: "", label: "" });
+    renderKeyTable();
+    renderCodexSnippets();
+  }
+}
+
+function formatUptime(sec) {
+  if (sec < 60) return sec + "s";
+  if (sec < 3600) return Math.floor(sec / 60) + "m";
+  return Math.floor(sec / 3600) + "h " + Math.floor((sec % 3600) / 60) + "m";
+}
+
+function renderRoutingTable(bodyId, highlightModel) {
+  const providers = collectAllProviders().length ? collectAllProviders() : (cfg?.providers || []);
+  const aliases = collectAliases();
+  const defaultProvider = document.getElementById("defaultProvider")?.value || cfg?.defaultProvider || "";
+  const rows = buildRoutingRows(providers, aliases, defaultProvider);
+  const el = document.getElementById(bodyId);
+  if (!el) return;
+  el.innerHTML = rows.map(r => {
+    const active = highlightModel && normModel(r.model) === normModel(highlightModel);
+    const keyBadge = r.hasApiKey === false ? '<span class="badge err">缺 Key</span>' : '<span class="badge ok">已配置</span>';
+    return `<tr class="${active ? "route-active" : ""}">
+      <td class="mono">${r.model}</td>
+      <td><span class="badge accent">${r.provider}</span></td>
+      <td>${bodyId.includes("Providers") ? keyBadge : r.note}${r.isAlias ? "" : ""}</td>
+    </tr>`;
+  }).join("") || '<tr><td colspan="3" class="hint">暂无模型，请在下方渠道中添加</td></tr>';
+  const lbl = document.getElementById("defaultProviderLabel");
+  if (lbl) lbl.textContent = defaultProvider || "—";
+}
+
+function renderDashboard() {
+  if (!statsData || !health) return;
+  const logs = statsData.recentLogs || [];
+  const okCount = logs.filter(l => l.ok).length;
+  const successRate = logs.length ? Math.round(okCount / logs.length * 100) : 100;
+  const avgMs = logs.length ? Math.round(logs.reduce((s, l) => s + l.ms, 0) / logs.length) : 0;
+  const port = document.getElementById("port")?.value || cfg?.port || 3001;
+  const route = resolveModelRoute(selectedModel, cfg?.providers, cfg?.modelAliases, cfg?.defaultProvider);
+
+  document.getElementById("statsGrid").innerHTML = `
+    <div class="stat-card"><div class="stat-label">总请求</div><div class="stat-value">${statsData.totalRequests || 0}</div></div>
+    <div class="stat-card"><div class="stat-label">成功率</div><div class="stat-value">${successRate}%</div><div class="stat-sub">最近 ${logs.length} 条</div></div>
+    <div class="stat-card"><div class="stat-label">平均耗时</div><div class="stat-value">${avgMs}<span style="font-size:.9rem;font-weight:400">ms</span></div></div>
+    <div class="stat-card"><div class="stat-label">运行时长</div><div class="stat-value">${formatUptime(health.uptimeSec || 0)}</div></div>`;
+
+  document.getElementById("currentRoute").innerHTML = `
+    <div class="info-row"><span class="info-label">Codex 模型</span><span class="info-value route-highlight">${selectedModel}</span></div>
+    <div class="info-row"><span class="info-label">实际渠道</span><span class="info-value"><span class="badge accent">${route.provider}</span>${route.fallback ? ' <span class="badge wait">默认回退</span>' : ""}</span></div>
+    <div class="info-row"><span class="info-label">上游模型</span><span class="info-value">${route.model}${route.alias ? ` <span class="hint">(别名 ${route.alias})</span>` : ""}</span></div>`;
+
+  renderRoutingTable("routingTable", selectedModel);
+
+  const baseUrl = `http://127.0.0.1:${port}/v1`;
+  document.getElementById("connectInfo").innerHTML = `
+    <div class="info-row"><span class="info-label">Base URL</span><span class="info-value">${baseUrl}</span></div>
+    <div class="info-row"><span class="info-label">鉴权</span><span class="info-value">${localKeySlots.length ? localKeySlots.length + " 个本地 Key" : "未启用"}</span></div>`;
+  document.getElementById("copyEndpoint").onclick = () => { navigator.clipboard.writeText(baseUrl); toast("已复制 Base URL"); };
+
+  const total = statsData.totalRequests || 1;
+  document.getElementById("providerUsage").innerHTML = (cfg?.providers || []).map(prov => {
+    const count = statsData.byProvider?.[prov.name] || 0;
+    const pct = Math.round(count / total * 100);
+    return `<div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;font-size:.85rem"><span>${prov.name}</span><span class="hint">${count} 次 · ${pct}%</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.max(pct, 2)}%"></div></div>
+    </div>`;
+  }).join("") || '<p class="hint">暂无渠道</p>';
+
+  renderLogsTable(logs, "dashLogBody", "dashNoLogs");
+}
+
+function renderLogsTable(logs, bodyId, emptyId) {
+  document.getElementById(emptyId).style.display = logs.length ? "none" : "block";
+  document.getElementById(bodyId).innerHTML = logs.slice(0, 40).map(l =>
+    `<tr><td>${l.at.slice(11, 19)}</td><td><span class="badge accent">${l.provider}</span></td><td class="mono">${l.model}</td><td>${l.ms}ms</td><td>${l.ok ? '<span class="badge ok">✓</span>' : '<span class="badge err">✗</span>'}</td></tr>`
+  ).join("");
+}
+
+const THINKING_STYLES = ["deepseek", "mimo", "passthrough"];
+
+function escAttr(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+function renderAllProviders() {
+  const el = document.getElementById("allProviders");
+  const defaultProvider = document.getElementById("defaultProvider")?.value || cfg?.defaultProvider || "";
+  el.innerHTML = (cfg?.providers || []).map((p, idx) => {
+    const isDefault = p.name === defaultProvider;
+    const modelsHtml = (p.models || []).map(m =>
+      `<span class="chip" data-m="${m}">${m}<button type="button" class="rm-model" data-m="${m}">×</button></span>`
+    ).join("");
+    const keyVal = p.apiKey || "";
+    return `<div class="prov-card ${isDefault ? "is-default" : ""}" data-idx="${idx}">
+      <div class="prov-card-head">
+        <input class="prov-name-input" value="${escAttr(p.name)}" placeholder="渠道名"/>
+        ${isDefault ? '<span class="badge accent">默认回退</span>' : ""}
+        <span class="badge ${p.hasApiKey ? "ok" : "err"}">${p.hasApiKey ? "Key 已配置" : "缺 Key"}</span>
+        <div class="prov-card-actions">
+          <button class="btn sm ghost test-prov" type="button">测试</button>
+          <button class="btn sm ghost danger rm-prov" type="button">删除</button>
+        </div>
+      </div>
+      <label>Base URL</label>
+      <input class="prov-baseUrl" value="${escAttr(p.baseUrl || "")}"/>
+      <label>API Key</label>
+      <div class="secret-row">
+        <input class="prov-apiKey mono" type="text" value="${escAttr(keyVal)}" placeholder="sk-... / tp-..." autocomplete="off" spellcheck="false"/>
+        <button class="btn sm ghost copy-prov-key" type="button">复制</button>
+      </div>
+      <label>thinkingStyle</label>
+      <select class="prov-style">${THINKING_STYLES.map(s => `<option value="${s}" ${(p.thinkingStyle||"deepseek")===s?"selected":""}>${s}</option>`).join("")}</select>
+      <label>模型列表</label>
+      <div class="chips prov-models">${modelsHtml}</div>
+      <div class="input-row" style="margin-top:8px">
+        <input class="prov-new-model" placeholder="添加模型名"/>
+        <button class="btn sm secondary add-model" type="button">添加</button>
+      </div>
+      <div class="result prov-test-result"></div>
+    </div>`;
+  }).join("");
+
+  el.querySelectorAll(".prov-card").forEach(card => bindProviderCard(card));
+  renderRoutingTable("routingTableProviders");
+}
+
+function bindProviderCard(card) {
+  const idx = +card.dataset.idx;
+  const models = [...(cfg.providers[idx]?.models || [])];
+
+  function syncModels() {
+    card.querySelector(".prov-models").innerHTML = models.map(m =>
+      `<span class="chip">${m}<button type="button" class="rm-model" data-m="${m}">×</button></span>`
+    ).join("");
+    card.querySelectorAll(".rm-model").forEach(b => b.onclick = () => {
+      const i = models.indexOf(b.dataset.m);
+      if (i >= 0) models.splice(i, 1);
+      syncModels(); markDirty(); renderRoutingTable("routingTableProviders"); renderModelPicker(); renderDashboard();
+    });
+  }
+
+  card.querySelector(".add-model").onclick = () => {
+    const inp = card.querySelector(".prov-new-model");
+    const v = inp.value.trim();
+    if (v && !models.includes(v)) { models.push(v); syncModels(); markDirty(); renderRoutingTable("routingTableProviders"); renderModelPicker(); renderDashboard(); }
+    inp.value = "";
+  };
+  card.querySelector(".prov-new-model").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); card.querySelector(".add-model").click(); } };
+
+  card.querySelectorAll("input, select").forEach(inp => inp.oninput = () => { markDirty(); renderRoutingTable("routingTableProviders"); });
+
+  card.querySelector(".rm-prov").onclick = () => {
+    if (document.querySelectorAll(".prov-card").length <= 1) { toast("至少保留一个渠道", "err"); return; }
+    card.remove();
+    markDirty();
+    renderRoutingTable("routingTableProviders");
+  };
+
+  card.querySelector(".test-prov").onclick = () => testSingleProvider(card, models);
+
+  card.querySelector(".copy-prov-key")?.addEventListener("click", () => {
+    const v = card.querySelector(".prov-apiKey").value;
+    if (!v) { toast("Key 为空", "err"); return; }
+    navigator.clipboard.writeText(v);
+    toast("已复制 API Key");
+  });
+
+  card._getModels = () => models;
+}
+
+function collectAllProviders() {
+  const out = [];
+  document.querySelectorAll(".prov-card").forEach(card => {
+    const idx = +card.dataset.idx;
+    const name = card.querySelector(".prov-name-input").value.trim();
+    if (!name) return;
+    const prev = cfg?.providers?.find(x => x.name === name) || (idx >= 0 ? cfg?.providers?.[idx] : {}) || {};
+    const apiKeyInput = card.querySelector(".prov-apiKey").value.trim();
+    out.push({
+      name,
+      baseUrl: card.querySelector(".prov-baseUrl").value.trim(),
+      apiKey: apiKeyInput,
+      thinkingStyle: card.querySelector(".prov-style").value,
+      models: card._getModels ? card._getModels() : (prev.models || []),
+      headers: prev.headers || {},
+      hasApiKey: !!apiKeyInput || !!prev.hasApiKey,
+    });
+  });
+  return out;
+}
+
+function uniqueProviderName(base) {
+  const names = new Set((cfg.providers || []).map((p) => p.name));
+  if (!names.has(base)) return base;
+  let i = 2;
+  while (names.has(`${base}-${i}`)) i++;
+  return `${base}-${i}`;
+}
+
+function updatePresetHint() {
+  const sel = document.getElementById("presetSelect");
+  const hint = document.getElementById("presetUrlHint");
+  if (!sel || !hint) return;
+  const presets = cfg.providerPresets || [];
+  const preset = presets[Number(sel.value)];
+  hint.textContent = preset?.baseUrl ? `Base URL：${preset.baseUrl}` : "";
+  hint.title = preset?.baseUrl || "";
+}
+
+function renderPresetSelect() {
+  const sel = document.getElementById("presetSelect");
+  if (!sel) return;
+  const presets = cfg.providerPresets || [];
+  if (!presets.length) {
+    sel.innerHTML = '<option value="">（无可用模板）</option>';
+    sel.disabled = true;
+    document.getElementById("addFromPreset").disabled = true;
+    updatePresetHint();
+    return;
+  }
+  sel.disabled = false;
+  document.getElementById("addFromPreset").disabled = false;
+  sel.innerHTML = presets.map((p, i) =>
+    `<option value="${i}" title="${escAttr(p.baseUrl || "")}">${escAttr(p.label)}</option>`
+  ).join("");
+  updatePresetHint();
+}
+
+function addBlankProvider() {
+  if (!cfg.providers) cfg.providers = [];
+  cfg.providers.push({
+    name: "new-provider",
+    baseUrl: "https://",
+    apiKey: "",
+    models: [],
+    thinkingStyle: "passthrough",
+    headers: {},
+    hasApiKey: false,
+  });
+  renderAllProviders();
+  markDirty();
+  toast("已添加空白渠道，请填写后保存");
+}
+
+function addProviderFromPreset() {
+  const presets = cfg.providerPresets || [];
+  const sel = document.getElementById("presetSelect");
+  const preset = presets[Number(sel?.value)];
+  if (!preset) {
+    toast("请先选择模板", true);
+    return;
+  }
+  if (!cfg.providers) cfg.providers = [];
+  const name = uniqueProviderName(preset.name);
+  cfg.providers.push({
+    name,
+    baseUrl: preset.baseUrl,
+    apiKey: "",
+    models: [...(preset.models || [])],
+    thinkingStyle: preset.thinkingStyle || "passthrough",
+    headers: {},
+    hasApiKey: false,
+  });
+  renderAllProviders();
+  markDirty();
+  const suffix = name !== preset.name ? `（名称 ${name}，因 ${preset.name} 已存在）` : "";
+  const headerHint = preset.id === "agentrouter" ? "；AgentRouter 将自动使用内置 Roo 请求头" : "";
+  toast(`已从模板「${preset.label}」添加${suffix}，请填写 API Key 后保存${headerHint}`);
+}
+
+document.getElementById("addProvider").onclick = addBlankProvider;
+document.getElementById("addFromPreset").onclick = addProviderFromPreset;
+document.getElementById("presetSelect").onchange = updatePresetHint;
+
+async function testSingleProvider(card, models) {
+  const result = card.querySelector(".prov-test-result");
+  result.className = "result show";
+  result.textContent = "测试中…";
+  result.classList.remove("ok", "err");
+  const name = card.querySelector(".prov-name-input").value.trim();
+  const testModel = models[0];
+  if (!testModel) { result.textContent = "请先添加至少一个模型"; result.classList.add("err"); return; }
+  const apiKey = card.querySelector(".prov-apiKey").value.trim();
+  const baseUrl = card.querySelector(".prov-baseUrl").value.trim();
+  try {
+    if (dirty) {
+      const body = collectConfig();
+      await api("/config", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
+      dirty = false;
+    }
+    const r = await api("/test", { method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        provider: {
+          name,
+          baseUrl,
+          ...(apiKey ? { apiKey } : {}),
+          models,
+          thinkingStyle: card.querySelector(".prov-style").value,
+        },
+        model: testModel,
+      }) });
+    if (r.ok) {
+      result.textContent = `✓ ${name} · ${testModel} 连接成功`;
+      result.classList.add("ok");
+      toast(`${name} 测试通过`);
+    } else {
+      const msg = r.body?.error?.message || r.body?.error || r.status;
+      result.textContent = `✗ ${name} 失败: ${msg}`;
+      result.classList.add("err");
+    }
+  } catch (err) {
+    result.textContent = "✗ " + err.message;
+    result.classList.add("err");
+  }
+}
+
+function getAllModelsWithProvider() {
+  const providers = collectAllProviders().length ? collectAllProviders() : (cfg?.providers || []);
+  const out = [];
+  const seen = new Set();
+  for (const p of providers) {
+    for (const m of p.models || []) {
+      const id = normModel(m);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({ model: m, provider: p.name });
+    }
+  }
+  for (const alias of Object.keys(cfg?.modelAliases || {})) {
+    if (!seen.has(normModel(alias))) out.push({ model: alias, provider: resolveModelRoute(alias, providers, cfg.modelAliases, cfg.defaultProvider).provider, isAlias: true });
+  }
+  return out;
+}
+
+function renderModelPicker() {
+  const items = getAllModelsWithProvider();
+  if (!items.some(x => normModel(x.model) === normModel(selectedModel)) && items.length) selectedModel = items[0].model;
+  const el = document.getElementById("modelPicker");
+  el.innerHTML = items.map(({ model, provider }) =>
+    `<button type="button" class="model-opt ${normModel(model) === normModel(selectedModel) ? "active" : ""}" data-m="${model}">
+      ${model}<span class="prov-tag">→ ${provider}</span>
+    </button>`
+  ).join("");
+  el.querySelectorAll(".model-opt").forEach(b => b.onclick = () => {
+    selectedModel = b.dataset.m;
+    renderModelPicker();
+    renderCodexSnippets();
+    renderDashboard();
+  });
+  renderCodexSnippets();
+}
+
+function renderCodexSnippets() {
+  const port = document.getElementById("port")?.value || cfg?.port || 3001;
+  const route = resolveModelRoute(selectedModel, cfg?.providers, cfg?.modelAliases, cfg?.defaultProvider);
+  document.getElementById("selectedRouteHint").innerHTML =
+    `选中 <strong>${selectedModel}</strong> 将路由到渠道 <span class="badge accent">${route.provider}</span>` +
+    (route.fallback ? ' <span class="badge wait">（默认回退）</span>' : "");
+  const lk = getPrimaryLocalKeyForSnippet();
+  const authKey = lk.includes("...") ? "(使用你的任一本地 Key)" : lk;
+  document.getElementById("codexToml").innerHTML =
+    `<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button type="button" class="copy-btn" data-target="codexToml">复制</button></div>` +
+    `model = "${selectedModel}"\nmodel_provider = "local_proxy"\n\n[model_providers.local_proxy]\nname = "local_proxy"\nbase_url = "http://127.0.0.1:${port}/v1"\nwire_api = "responses"\nrequires_openai_auth = true`;
+  document.getElementById("codexAuth").innerHTML =
+    `<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button type="button" class="copy-btn" data-target="codexAuth">复制</button></div>` +
+    `{\n  "OPENAI_API_KEY": "${authKey}"\n}`;
+  bindCopyButtons();
+}
+
+function bindCopyButtons() {
+  document.querySelectorAll(".copy-btn[data-target]").forEach(btn => {
+    btn.onclick = () => {
+      const block = document.getElementById(btn.dataset.target);
+      const text = block.innerText.replace(/^复制\n?/m, "").trim();
+      navigator.clipboard.writeText(text);
+      toast("已复制");
+    };
+  });
+}
+
+function getCopyAllText() {
+  const toml = document.getElementById("codexToml").innerText.replace(/^复制\n?/m, "").trim();
+  const auth = document.getElementById("codexAuth").innerText.replace(/^复制\n?/m, "").trim();
+  return toml + "\n\n---\n\n" + auth;
+}
+
+document.getElementById("copyAll").onclick = () => { navigator.clipboard.writeText(getCopyAllText()); toast("已复制全部 Codex 配置"); };
+
+function renderAliases() {
+  const aliases = cfg.modelAliases || {};
+  const el = document.getElementById("aliasList");
+  el.innerHTML = Object.entries(aliases).map(([k,v]) => `
+    <div class="input-row alias-row" style="margin-top:8px">
+      <input class="alias-from" value="${k}" placeholder="别名"/>
+      <input class="alias-to" value="${v}" placeholder="实际模型"/>
+      <button type="button" class="btn sm secondary rm-alias">删</button>
+    </div>`).join("");
+  el.querySelectorAll(".rm-alias").forEach((b, i) => b.onclick = () => { el.querySelectorAll(".alias-row")[i]?.remove(); markDirty(); renderRoutingTable("routingTable"); renderRoutingTable("routingTableProviders"); });
+  el.querySelectorAll("input").forEach(inp => inp.oninput = () => { markDirty(); renderRoutingTable("routingTable"); renderRoutingTable("routingTableProviders"); });
+}
+
+document.getElementById("addAlias").onclick = () => {
+  document.getElementById("aliasList").insertAdjacentHTML("beforeend", `
+    <div class="input-row alias-row" style="margin-top:8px">
+      <input class="alias-from" placeholder="别名"/><input class="alias-to" placeholder="实际模型"/>
+      <button type="button" class="btn sm secondary rm-alias">删</button>
+    </div>`);
+  const rows = document.getElementById("aliasList").querySelectorAll(".alias-row");
+  const last = rows[rows.length - 1];
+  last.querySelector(".rm-alias").onclick = e => { e.target.closest(".alias-row").remove(); markDirty(); };
+  last.querySelectorAll("input").forEach(inp => inp.oninput = markDirty);
+  markDirty();
+};
+
+function collectAliases() {
+  const out = {};
+  document.querySelectorAll(".alias-row").forEach(row => {
+    const f = row.querySelector(".alias-from").value.trim();
+    const t = row.querySelector(".alias-to").value.trim();
+    if (f && t) out[f] = t;
+  });
+  return out;
+}
+
+function collectConfig() {
+  const providers = collectAllProviders().map(p => {
+    const prev = cfg.providers.find(x => x.name === p.name) || {};
+    const apiKey = p.apiKey || prev.apiKey || "";
+    return { ...prev, ...p, apiKey, headers: p.headers || prev.headers || {} };
+  });
+  return {
+    port: +document.getElementById("port").value,
+    localKeys: buildLocalKeysPayload(),
+    defaultProvider: document.getElementById("defaultProvider").value,
+    modelAliases: collectAliases(),
+    providers,
+  };
+}
+
+async function runTestAll() {
+  try {
+    if (dirty) {
+      const body = collectConfig();
+      await api("/config", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
+      dirty = false;
+      cfg = await api("/config");
+    }
+    const providers = collectAllProviders().length ? collectAllProviders() : cfg.providers;
+    const results = [];
+    for (const p of providers) {
+      if (!p.models?.length) { results.push(`${p.name}: 无模型，跳过`); continue; }
+      const r = await api("/test", { method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          provider: { name: p.name, baseUrl: p.baseUrl, ...(p.apiKey ? { apiKey: p.apiKey } : {}), models: p.models },
+          model: p.models[0],
+        }) });
+      results.push(r.ok ? `✓ ${p.name}` : `✗ ${p.name}`);
+    }
+    toast(results.join(" · "), results.every(x => x.startsWith("✓")) ? "ok" : "err");
+    document.getElementById("dirtyHint").textContent = "已保存";
+    document.getElementById("dirtyHint").style.color = "var(--ok)";
+  } catch (err) {
+    toast(err.message, "err");
+  }
+}
+
+document.getElementById("testBtn").onclick = runTestAll;
+document.getElementById("qaTestAll").onclick = runTestAll;
+document.getElementById("qaProviders").onclick = () => switchTab("providers");
+document.getElementById("qaCopyCodex").onclick = () => { navigator.clipboard.writeText(getCopyAllText()); toast("已复制 Codex 配置"); };
+document.getElementById("qaCodex").onclick = () => switchTab("codex");
+
+document.getElementById("saveBtn").onclick = async () => {
+  try {
+    const body = collectConfig();
+    const r = await api("/config", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
+    toast(r.portChanged ? "已保存，请重启代理使端口生效" : "配置已保存", "ok");
+    dirty = false;
+    document.getElementById("dirtyHint").textContent = r.portChanged ? "端口已改，需重启代理" : "已保存并生效";
+    document.getElementById("dirtyHint").style.color = "var(--ok)";
+    await load(false);
+  } catch (err) {
+    toast(err.message, "err");
+  }
+};
+
+function renderLogs(s) {
+  renderLogsTable(s.recentLogs || [], "logBody", "noLogs");
+  renderLogsTable(s.recentLogs || [], "dashLogBody", "dashNoLogs");
+}
+
+async function load(resetDirty = true) {
+  cfg = await api("/config");
+  health = await api("/health");
+  statsData = await api("/stats");
+  document.getElementById("statusText").textContent = `在线 · 127.0.0.1:${health.port} · ${formatUptime(health.uptimeSec)}`;
+  document.getElementById("port").value = cfg.port;
+  localKeySlots = (cfg.localKeyEntries || []).map((e, origIndex) => ({
+    type: "existing",
+    origIndex,
+    preview: e.key,
+    fullKey: e.key || "",
+    provider: e.provider || "",
+    model: e.model || "",
+    label: e.label || "",
+  }));
+  if (statsData?.configPath) {
+    const hint = document.getElementById("configPathHint");
+    if (hint) hint.textContent = statsData.configPath;
+  }
+  const sel = document.getElementById("defaultProvider");
+  sel.innerHTML = cfg.providers.map(p => `<option value="${p.name}">${p.name}</option>`).join("");
+  sel.value = cfg.defaultProvider || cfg.providers[0]?.name || "";
+  renderPresetSelect();
+  renderAllProviders();
+  renderKeyTable();
+  renderModelPicker();
+  renderAliases();
+  renderDashboard();
+  renderLogs(statsData);
+  if (resetDirty) {
+    dirty = false;
+    document.getElementById("dirtyHint").textContent = "修改后请点击保存";
+    document.getElementById("dirtyHint").style.color = "";
+  }
+}
+
+document.getElementById("port").oninput = () => { markDirty(); renderCodexSnippets(); renderDashboard(); };
+document.getElementById("defaultProvider").onchange = () => { markDirty(); renderAllProviders(); renderRoutingTable("routingTable"); renderDashboard(); };
+document.getElementById("newLocalKey").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); document.getElementById("addLocalKey").click(); } };
+
+load().then(() => { if (!cfg.hasLocalKey) genKeyIfEmpty(); });
+setInterval(async () => {
+  try {
+    statsData = await api("/stats");
+    health = await api("/health");
+    document.getElementById("statusText").textContent = `在线 · 127.0.0.1:${health.port} · ${formatUptime(health.uptimeSec)}`;
+    renderLogs(statsData);
+    renderDashboard();
+  } catch {}
+}, 15000);
+</script>
+</body>
+</html>
