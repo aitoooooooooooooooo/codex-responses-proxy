@@ -884,12 +884,32 @@ function writeWithBackpressure(res, chunk) {
   });
 }
 
-function wireClientCancel(res, upstreamRes) {
+function wireClientCancel(res, onCancel) {
   const onClose = () => {
-    try { upstreamRes.body?.cancel?.(); } catch { /* ignore */ }
+    try {
+      const result = onCancel();
+      if (result?.catch) result.catch(() => {});
+    } catch { /* ignore */ }
   };
   res.on("close", onClose);
   return () => res.off("close", onClose);
+}
+
+function wireRequestAbort(req, controller) {
+  if (!req || !controller) return () => {};
+  const abort = () => {
+    if (!controller.signal.aborted) controller.abort();
+  };
+  req.on("aborted", abort);
+  req.on("close", abort);
+  return () => {
+    req.off("aborted", abort);
+    req.off("close", abort);
+  };
+}
+
+function isAbortError(err) {
+  return err?.name === "AbortError" || err?.code === "ABORT_ERR";
 }
 
 async function sendCompletion(res, events, responseId, model, fullText, toolCalls, outputIndex, textOutputIdx, finishReason, usage, previousResponseId, metadata) {
@@ -949,14 +969,22 @@ async function sendCompletion(res, events, responseId, model, fullText, toolCall
   return finalOutput;
 }
 
-async function handleStreamingResponse(upstreamRes, res, model, previousResponseId, metadata) {
+async function handleStreamingResponse(upstreamRes, res, model, previousResponseId, metadata, { reader: existingReader } = {}) {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
   });
 
-  const teardown = wireClientCancel(res, upstreamRes);
+  const reader = existingReader || upstreamRes.body?.getReader();
+  if (!reader) {
+    if (!clientGone(res)) res.end();
+    return { responseId: `resp_${uid()}`, output: [], reasoningContent: "" };
+  }
+
+  const cancelReader = () => reader.cancel().catch(() => {});
+  const teardown = wireClientCancel(res, cancelReader);
+
   const responseId = `resp_${uid()}`;
   const events = buildStreamingResponseEvents(responseId, model, previousResponseId, metadata);
   await writeWithBackpressure(res, events.created());
@@ -974,90 +1002,108 @@ async function handleStreamingResponse(upstreamRes, res, model, previousResponse
   let streamOutput = null;
   const decoder = new TextDecoder();
 
-  try {
-    for await (const chunk of upstreamRes.body) {
-      if (clientGone(res)) break;
-      buffer += decoder.decode(chunk, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop();
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const data = line.slice(6).trim();
-        if (data === "[DONE]") {
-          if (!completionSent) {
-            completionSent = true;
-            streamOutput = await sendCompletion(res, events, responseId, model, fullText, toolCalls, outputIndex, textOutputIdx, null, null, previousResponseId, metadata);
-          }
-          continue;
+  const processLines = async (lines) => {
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const data = line.slice(6).trim();
+      if (data === "[DONE]") {
+        if (!completionSent) {
+          completionSent = true;
+          streamOutput = await sendCompletion(res, events, responseId, model, fullText, toolCalls, outputIndex, textOutputIdx, null, null, previousResponseId, metadata);
         }
+        continue;
+      }
 
-        let parsed;
-        try { parsed = JSON.parse(data); } catch { continue; }
+      let parsed;
+      try { parsed = JSON.parse(data); } catch { continue; }
 
-        const delta = parsed.choices?.[0]?.delta;
-        const finishReason = parsed.choices?.[0]?.finish_reason;
-        if (!delta && !finishReason) continue;
+      const delta = parsed.choices?.[0]?.delta;
+      const finishReason = parsed.choices?.[0]?.finish_reason;
+      if (!delta && !finishReason) continue;
 
-        if (delta?.tool_calls) {
-          for (const tc of delta.tool_calls) {
-            const idx = tc.index ?? 0;
-            const tcOutIdx = (messageStarted && textOutputIdx === 0) ? outputIndex + idx + 1 : outputIndex + idx;
-            if (!toolCalls.has(idx)) {
-              const callId = tc.id || `call_${uid()}`;
-              const fcId = `fc_${uid()}`;
-              toolCalls.set(idx, { id: fcId, callId, name: tc.function?.name || "", arguments: "", outputIdx: tcOutIdx });
-              await writeWithBackpressure(res, events.outputItemAdded(tcOutIdx, {
-                type: "function_call", id: fcId, call_id: callId, name: tc.function?.name || "", arguments: "", status: "in_progress",
-              }));
-            }
-            if (tc.function?.arguments) {
-              const tcData = toolCalls.get(idx);
-              tcData.arguments += tc.function.arguments;
-              await writeWithBackpressure(res, events.fnCallArgsDelta(tcData.outputIdx, tcData.callId, tc.function.arguments));
-            }
-          }
-          if (finishReason && !completionSent) {
-            completionSent = true;
-            streamOutput = await sendCompletion(res, events, responseId, model, fullText, toolCalls, outputIndex, textOutputIdx, finishReason, parsed.usage, previousResponseId, metadata);
-          }
-          continue;
-        }
-
-        if (typeof delta?.reasoning_content === "string") {
-          reasoningContent += delta.reasoning_content;
-          continue;
-        }
-
-        if (delta?.content) {
-          let text = delta.content;
-          if (text.includes("<think>")) { inThink = true; text = text.replace(/<think>/g, ""); }
-          if (text.includes("</think>")) { inThink = false; text = text.replace(/<\/think>/g, ""); }
-          if (inThink || !text) continue;
-
-          if (!messageStarted) {
-            messageStarted = true;
-            textOutputIdx = outputIndex + toolCalls.size;
-            await writeWithBackpressure(res, events.outputItemAdded(textOutputIdx, {
-              type: "message", id: `msg_${uid()}`, status: "in_progress", role: "assistant", content: [],
+      if (delta?.tool_calls) {
+        for (const tc of delta.tool_calls) {
+          const idx = tc.index ?? 0;
+          const tcOutIdx = (messageStarted && textOutputIdx === 0) ? outputIndex + idx + 1 : outputIndex + idx;
+          if (!toolCalls.has(idx)) {
+            const callId = tc.id || `call_${uid()}`;
+            const fcId = `fc_${uid()}`;
+            toolCalls.set(idx, { id: fcId, callId, name: tc.function?.name || "", arguments: "", outputIdx: tcOutIdx });
+            await writeWithBackpressure(res, events.outputItemAdded(tcOutIdx, {
+              type: "function_call", id: fcId, call_id: callId, name: tc.function?.name || "", arguments: "", status: "in_progress",
             }));
-            await writeWithBackpressure(res, events.contentPartAdded(textOutputIdx, 0, { type: "output_text", text: "", annotations: [] }));
           }
-          fullText += text;
-          await writeWithBackpressure(res, events.textDelta(textOutputIdx, 0, text));
+          if (tc.function?.arguments) {
+            const tcData = toolCalls.get(idx);
+            tcData.arguments += tc.function.arguments;
+            await writeWithBackpressure(res, events.fnCallArgsDelta(tcData.outputIdx, tcData.callId, tc.function.arguments));
+          }
         }
-
         if (finishReason && !completionSent) {
           completionSent = true;
           streamOutput = await sendCompletion(res, events, responseId, model, fullText, toolCalls, outputIndex, textOutputIdx, finishReason, parsed.usage, previousResponseId, metadata);
         }
+        continue;
       }
+
+      if (typeof delta?.reasoning_content === "string") {
+        reasoningContent += delta.reasoning_content;
+        continue;
+      }
+
+      if (delta?.content) {
+        let text = delta.content;
+        if (text.includes("<think>")) { inThink = true; text = text.replace(/<think>/g, ""); }
+        if (text.includes("</think>")) { inThink = false; text = text.replace(/<\/think>/g, ""); }
+        if (inThink || !text) continue;
+
+        if (!messageStarted) {
+          messageStarted = true;
+          textOutputIdx = outputIndex + toolCalls.size;
+          await writeWithBackpressure(res, events.outputItemAdded(textOutputIdx, {
+            type: "message", id: `msg_${uid()}`, status: "in_progress", role: "assistant", content: [],
+          }));
+          await writeWithBackpressure(res, events.contentPartAdded(textOutputIdx, 0, { type: "output_text", text: "", annotations: [] }));
+        }
+        fullText += text;
+        await writeWithBackpressure(res, events.textDelta(textOutputIdx, 0, text));
+      }
+
+      if (finishReason && !completionSent) {
+        completionSent = true;
+        streamOutput = await sendCompletion(res, events, responseId, model, fullText, toolCalls, outputIndex, textOutputIdx, finishReason, parsed.usage, previousResponseId, metadata);
+      }
+    }
+  };
+
+  try {
+    while (!clientGone(res)) {
+      let readResult;
+      try {
+        readResult = await reader.read();
+      } catch (err) {
+        if (clientGone(res) || isAbortError(err)) break;
+        throw err;
+      }
+
+      const { done, value } = readResult;
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+      await processLines(lines);
+    }
+  } catch (err) {
+    if (!clientGone(res) && !isAbortError(err)) {
+      log.warn("[proxy] stream read error:", err.message);
     }
   } finally {
     teardown();
+    try { reader.releaseLock(); } catch { /* already released */ }
   }
 
-  if (!completionSent) {
+  if (!completionSent && !clientGone(res)) {
     completionSent = true;
     const fallbackReason = (fullText.length > 0 || toolCalls.size > 0) ? "length" : "stop";
     streamOutput = await sendCompletion(res, events, responseId, model, fullText, toolCalls, outputIndex, textOutputIdx, fallbackReason, null, previousResponseId, metadata);
@@ -1081,13 +1127,19 @@ async function readJsonBody(req) {
   return JSON.parse(raw);
 }
 
-async function fetchWithTimeout(url, opts, timeoutMs = UPSTREAM_TIMEOUT) {
+async function fetchWithTimeout(url, opts, timeoutMs = UPSTREAM_TIMEOUT, externalSignal) {
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), timeoutMs);
+  const onExternal = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener("abort", onExternal, { once: true });
+  }
   try {
     return await fetch(url, { ...opts, signal: controller.signal });
   } finally {
     clearTimeout(t);
+    externalSignal?.removeEventListener?.("abort", onExternal);
   }
 }
 
@@ -1172,12 +1224,15 @@ async function handleResponses(req, res, body) {
 
   log.info(`[proxy] ${provider.name}(${chatReq.model}) stream=${isStream} fallback=${!!fallback}`);
 
+  const clientAbort = isStream ? new AbortController() : null;
+  const detachClient = clientAbort ? wireRequestAbort(req, clientAbort) : () => {};
+
   try {
     const upstreamRes = await fetchWithTimeout(upstreamUrl, {
       method: "POST",
       headers: upstreamHeaders(provider),
       body: JSON.stringify(chatReq),
-    });
+    }, UPSTREAM_TIMEOUT, clientAbort?.signal);
 
     if (!upstreamRes.ok) {
       await sendUpstreamError(upstreamRes, res);
@@ -1186,17 +1241,27 @@ async function handleResponses(req, res, body) {
     }
 
     if (isStream) {
-      const { responseId, output, reasoningContent } = await handleStreamingResponse(
-        upstreamRes, res, body.model, originalPreviousResponseId, body.metadata
-      );
-      storeResponse(responseId, {
-        provider: provider.name,
-        input: originalInput,
-        output,
-        previousResponseId: originalPreviousResponseId,
-        reasoningContent: reasoningContent || "",
-      });
-      recordRequest(provider.name, chatReq.model, true, Date.now() - t0);
+      try {
+        const { responseId, output, reasoningContent } = await handleStreamingResponse(
+          upstreamRes, res, body.model, originalPreviousResponseId, body.metadata
+        );
+        storeResponse(responseId, {
+          provider: provider.name,
+          input: originalInput,
+          output,
+          previousResponseId: originalPreviousResponseId,
+          reasoningContent: reasoningContent || "",
+        });
+        recordRequest(provider.name, chatReq.model, true, Date.now() - t0);
+      } catch (err) {
+        if (!isAbortError(err)) log.error("[proxy] stream error:", err.message);
+        if (!res.headersSent) {
+          sendJson(res, 502, { error: { message: err.message } });
+        } else if (!clientGone(res)) {
+          res.end();
+        }
+        recordRequest(provider.name, chatReq.model, false, Date.now() - t0);
+      }
       return;
     }
 
@@ -1216,6 +1281,8 @@ async function handleResponses(req, res, body) {
     log.error("[proxy] upstream error:", err.message);
     sendJson(res, 502, { error: { message: err.message } });
     recordRequest(provider.name, chatReq.model, false, Date.now() - t0);
+  } finally {
+    detachClient();
   }
 }
 
