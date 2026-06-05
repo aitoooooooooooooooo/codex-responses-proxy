@@ -47,20 +47,10 @@ dev: ## 前台启动，使用项目目录 config.json（开发/调试）
 	CONFIG_PATH="$(LOCAL_CONFIG)" $(NODE) $(BIN)
 
 start-bg: ## 后台启动（日志写入 ~/.codex-responses-proxy/proxy.log）
-	@mkdir -p "$(CONFIG_DIR)"
-	@if curl -sf "$(URL)/health" >/dev/null 2>&1; then \
-		echo "已在运行: $(URL)"; \
-	else \
-		nohup $(NODE) $(BIN) >> "$(LOG_FILE)" 2>&1 & echo $$! > "$(PID_FILE)"; \
-		sleep 1; \
-		$(MAKE) --no-print-directory status || (echo "启动失败，查看: $(LOG_FILE)"; exit 1); \
-	fi
+	$(NODE) $(BIN) -daemon
 
 stop: ## 停止后台代理
-	@-pkill -f "codex-responses-proxy" 2>/dev/null || true
-	@-pkill -f "$(BIN)" 2>/dev/null || true
-	@rm -f "$(PID_FILE)"
-	@echo "已停止"
+	$(NODE) $(BIN) --stop
 
 restart: stop start-bg ## 重启后台代理
 
